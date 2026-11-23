@@ -327,7 +327,7 @@ function clientForm(pro){
  function draw(){
   const m=$('#screen');const pct=step===0?0:Math.round(Math.min(step,N)/N*100);
   let h=step>0&&step<=N?`<div class="progress"><i style="width:${pct}%"></i></div><div class="steplabel">Etapa ${step} de ${N} · ${esc(BLOCKS[step-1].title)}</div>`:'';
-  if(step===0){h+=`<div class="card"><img class="cover" src="${PHOTO_COVER}" alt="Foto da profissional" style="object-position:50% 45%"><p class="welcome">Olá! Eu sou ${esc(pro.name)} 💅</p><p>Quero conhecer você e o jeito que você gosta das coisas, para te atender do seu jeito.</p>
+  if(step===0){h+=`<div class="card"><img class="cover" src="${PHOTO_COVER}" alt="Foto da profissional" style="object-position:50% 45%;max-height:none;aspect-ratio:16/9"><p class="welcome">Olá! Eu sou ${esc(pro.name)} 💅</p><p>Quero conhecer você e o jeito que você gosta das coisas, para te atender do seu jeito.</p>
   <label for="f-cliente">Seu nome *<input id="f-cliente" data-q="cliente" value="${esc(ans.cliente||'')}" autocomplete="name"></label>
   <label for="f-fone">Seu WhatsApp<input id="f-fone" data-q="fone" inputmode="tel" value="${esc(ans.fone||'')}"></label>
   <p style="font-weight:700;margin:18px 0 6px;color:var(--dark)">Me conta como você gosta</p>
@@ -490,7 +490,7 @@ home(){const t=today();const vs=visitsOn(t);const tm=visitsOn(addDays(t,1)).filt
  const low=S.clients.map(h=>({h,pi:(h.pkgs||[]).length?pkgInfo(h):null})).filter(x=>x.pi&&x.pi.left<=1);
  const bday=S.clients.filter(h=>{const m=String(h.nasc||'').match(/(\d{1,2})\D+(\d{1,2})/);if(!m)return false;for(let i=0;i<7;i++){const d=parse(addDays(t,i));if(d.getDate()===+m[1]&&d.getMonth()+1===+m[2])return true}return false});
  return `<p class="welcome">${hi}${S.pro.name?', '+esc(first(S.pro.name)):''}! Vamos deixar todas lindas! 💅</p>
- ${S.cover?`<img class="cover" src="${S.cover}" alt="Foto de capa">`:`<img class="cover" src="${PHOTO_COVER}" alt="Foto da profissional" style="object-position:50% 45%">`}
+ ${S.cover?`<img class="cover" src="${S.cover}" alt="Foto de capa">`:`<img class="cover" src="${PHOTO_COVER}" alt="Foto da profissional" style="object-position:50% 45%;max-height:none;aspect-ratio:16/9">`}
  <div class="shortcuts"><button data-a="novo"><span class="scIcon">＋</span>Novo<br>horário</button><button data-a="go" data-p="agenda"><span class="scIcon">📅</span>Agenda</button><button data-a="go" data-p="link"><span class="scIcon">📝</span>Ficha da<br>cliente</button><button data-a="go" data-p="fin"><span class="scIcon">💰</span>Receber</button></div>
  ${pend.length?`<div class="card" style="border:2px solid var(--warn)"><h3>📌 Para remarcar (${pend.length})</h3><p class="small muted">Clientes que desmarcaram ou não vieram e ainda não têm novo horário.</p>${pend.sort(byTime).map(v=>`<div class="money"><span><b>${esc(cli(v.cli).cliente)}</b><br><span class="small muted">${esc(fmtShort(v.date))} · ${esc(svcNames(v.svcs))}</span></span><span style="flex:0 0 auto;display:grid;gap:4px"><button class="mini" data-a="remarcar" data-v="${v.id}">📅 Remarcar</button>${PLUS()&&cli(v.cli).phone?`<a class="btn light" style="padding:7px 10px;font-size:13px" href="${esc(waLink(cli(v.cli).phone,fillTpl('horarios',cli(v.cli),{horarios:nextFreeText(svcDur(v.svcs))})))}" target="_blank" rel="noopener">💬 Oferecer horários</a>`:''}</span></div>`).join('')}</div>`:''}
  <div class="card"><h3>Hoje · ${esc(fmtD(t))}</h3>${vs.length?vs.map(v=>visitCard(v)).join(''):'<p class="muted small">Nenhum horário hoje.</p>'}</div>

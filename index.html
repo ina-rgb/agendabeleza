@@ -212,7 +212,7 @@ const PAGE_URL=/github\.io|netlify\.app|vercel\.app/.test(location.hostname)?loc
 const $=s=>document.querySelector(s);
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=n=>(Number(n)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
-const num=v=>{if(typeof v==='number')return isFinite(v)?v:0;let s=String(v||'').replace(/[^\d,.-]/g,'');if(s.includes(','))s=s.replace(/\./g,'').replace(',','.');const n=parseFloat(s);return isNaN(n)?0:n};
+const num=v=>{if(typeof v==='number')return isFinite(v)?v:0;let s=String(v||'').replace(/[^\d,.-]/g,'');if(s.includes(','))s=s.replace(/\./g,'').replace(',','.');else if(/^\d{1,3}(\.\d{3})+$/.test(s))s=s.replace(/\./g,'');const n=parseFloat(s);return isNaN(n)?0:n};
 const brl=n=>String(Math.round(num(n)*100)/100).replace('.',',');
 const uid=()=>Math.random().toString(36).slice(2,9);
 const pad=n=>String(n).padStart(2,'0');
@@ -417,8 +417,12 @@ const first=n=>String(n||'').split(' ')[0];
 function schedFor(h,date){let s=null;(h.sched||[]).forEach(x=>{if(x.from<=date)s=x});return s}
 function plannedFor(h,date){const s=schedFor(h,date);if(!s)return null;const d=parse(date);const p=s.days&&s.days[d.getDay()];if(!p)return null;
  if(s.freq==='quinzenal'){const a=parse(s.from);a.setDate(a.getDate()-a.getDay());const b=new Date(d);b.setDate(b.getDate()-b.getDay());const w=Math.round((b-a)/(7*864e5));if(w%2)return null}if(s.freq==='mensal'&&Math.ceil(d.getDate()/7)!==(s.wk||1))return null;return p}
-function mkFixed(h,date,time){const id=h.id+'|'+date;const o=S.ov[id]||{};const mode=h.cob==='mensal'?'mensal':h.cob==='pacote'?'pacote':'avulso';
- return {id,cli:h.id,date,time:time,kind:'fixa',svcs:h.fixSvcs||[],price:mode==='avulso'?(num(h.fixPrice)||svcPrice(h.fixSvcs||[])):0,mode,st:o.st||'',to:o.to,rep:o.rep,desc:o.desc}}
+function mkFixed(h,date,time){const id=h.id+'|'+date;const o=S.ov[id]||{};const cb=cobAt(h,ymOf(date)).cob;const mode=o.mode||(cb==='mensal'?'mensal':cb==='pacote'?'pacote':'avulso');const svcs=o.svcs||h.fixSvcs||[];
+ return {id,cli:h.id,date,time:time,kind:'fixa',svcs,price:o.price!=null?num(o.price):(mode==='avulso'?(num(h.fixPrice)||svcPrice(svcs)):0),lp:o.lp,mode,st:o.st||'',to:o.to,rep:o.rep,desc:o.desc}}
+function sinceOf(h){if(h.since)return h.since;const ds=[...(h.sched||[]).map(x=>x.from),...S.extras.filter(e=>e.cli===h.id).map(e=>e.date),...(h.pkgs||[]).map(x=>x.date),...S.payments.filter(x=>x.cli===h.id).map(x=>x.month+'-01')].sort();return ds.length?ymOf(ds[0]):ymOf(today())}
+function cobAt(h,ym){const hs=h.cobHist&&h.cobHist.length?h.cobHist:[{from:sinceOf(h),cob:h.cob||'avulso',mensal:num(h.mensal)}];let c=null;hs.forEach(x=>{if(x.from<=ym)c=x});return c||{cob:'avulso',mensal:0,none:true}}
+function setCob(h,cob,mensal){const ym=ymOf(today());if(!h.cobHist||!h.cobHist.length)h.cobHist=[{from:sinceOf(h),cob:h.cob||'avulso',mensal:num(h.mensal)}];const cur=cobAt(h,ym);h.cob=cob;h.mensal=num(mensal);if(cur.cob===cob&&num(cur.mensal)===num(mensal))return;h.cobHist=h.cobHist.filter(x=>x.from<ym);h.cobHist.push({from:ym,cob,mensal:num(mensal)})}
+const lpOf=v=>v.lp!=null?num(v.lp):svcPrice(v.svcs);
 const byTime=(a,b)=>a.date<b.date?-1:a.date>b.date?1:tmin(a.time)-tmin(b.time);
 function visitsOn(date){const out=[];S.clients.forEach(h=>{const p=plannedFor(h,date);if(p)out.push(mkFixed(h,date,p))});
  S.extras.filter(e=>e.date===date).forEach(e=>out.push(e));
@@ -445,29 +449,29 @@ function pkgInfo(h){const pk=(h.pkgs||[]).slice().sort((a,b)=>a.date<b.date?-1:1
  all.filter(usesPk).forEach(v=>{const slot=res.list.find(x=>x.left>0);if(slot){slot.used++;slot.left--}else res.over.add(v.id)});
  res.left=res.list.reduce((s,x)=>s+x.left,0);res.next=all.filter(v=>v.mode==='pacote'&&!v.st&&v.date>=today()).length;return res}
 function monthStats(h,ym){const r={total:0,feitas:0,cancel:0,desm:0,repor:0,falta:0,rest:0,list:[]};const t=today();
- const pi=(h.cob==='pacote'||(h.pkgs||[]).length||S.extras.some(e=>e.cli===h.id&&e.mode==='pacote'))?pkgInfo(h):{over:new Set()};
+ const pi=pkgInfo(h);const cm=cobAt(h,ym);
  let dev=0;
  visitsOfClient(h,ym+'-01',lastDay(ym)).forEach(v=>{if(v.st==='tirado')return;if(v.kind==='remarcada'||v.kind==='avulso'||v.kind==='fixa')r.total++;let k='next';
-  if(v.st==='feita'){r.feitas++;k='done';if(v.mode==='avulso')dev+=num(v.price);else if(pi.over.has(v.id))dev+=svcPrice(v.svcs)}
-  else if(v.st==='cancel'){r.cancel++;k='bad'}else if(v.st==='cancel-repor'){r.desm++;if(!v.rep)r.repor++;k=v.rep?'moved':'rep'}else if(v.st==='falta'){r.falta++;if(!v.rep)r.repor++;k=v.rep?'moved':'rep';if(pi.over.has(v.id))dev+=svcPrice(v.svcs)}else if(v.st==='remarcada'){k='moved';r.total--}else if(v.date>=t){r.rest++}else k='past';
+  if(v.st==='feita'){r.feitas++;k='done';if(v.mode==='avulso')dev+=num(v.price);else if(pi.over.has(v.id))dev+=lpOf(v)}
+  else if(v.st==='cancel'){r.cancel++;k='bad'}else if(v.st==='cancel-repor'){r.desm++;if(!v.rep)r.repor++;k=v.rep?'moved':'rep'}else if(v.st==='falta'){r.falta++;if(!v.rep)r.repor++;k=v.rep?'moved':'rep';if(pi.over.has(v.id))dev+=lpOf(v)}else if(v.st==='remarcada'){k='moved';r.total--}else if(v.date>=t){r.rest++}else k='past';
   r.list.push({ds:v.date,k})});
- if(h.cob==='mensal')dev+=num(h.mensal);
+ if(cm.cob==='mensal')dev+=num(cm.mensal);
  (h.pkgs||[]).filter(p=>ymOf(p.date)===ym).forEach(p=>dev+=num(p.price));
  r.prev=visitsOfClient(h,ym+'-01',lastDay(ym)).filter(v=>!v.st&&v.mode==='avulso').reduce((s,v)=>s+num(v.price),0);r.devido=dev;r.pago=S.payments.filter(p=>p.cli===h.id&&p.month===ym).reduce((s,p)=>s+num(p.value),0);r.falta=Math.max(0,r.devido+r.prev-r.pago);return r}
 function finReport(ym){const rows={};const row=id=>rows[id]=rows[id]||{name:(svc(id)||{}).name||'Outros',qa:0,va:0,qp:0,qm:0};let atend=0,canc=0;
- S.clients.forEach(h=>{const pi=(h.pkgs||[]).length||h.cob==='pacote'?pkgInfo(h):{over:new Set()};
-  visitsOfClient(h,ym+'-01',lastDay(ym)).forEach(v=>{if(v.st==='cancel'||v.st==='cancel-repor'||v.st==='falta')canc++;if(v.st!=='feita')return;atend++;const ids=v.svcs&&v.svcs.length?v.svcs:['_outros'];
-   const avulso=v.mode==='avulso'||pi.over.has(v.id);const total=v.mode==='avulso'?num(v.price):svcPrice(v.svcs);const lp=ids.map(i=>svc(i)?num(svc(i).price):0);const sum=lp.reduce((a,b)=>a+b,0);
+ S.clients.forEach(h=>{const pi=pkgInfo(h);
+  visitsOfClient(h,ym+'-01',lastDay(ym)).forEach(v=>{if(v.st==='cancel'||v.st==='cancel-repor'||v.st==='falta')canc++;const chargedFalta=v.st==='falta'&&pi.over.has(v.id);if(v.st!=='feita'&&!chargedFalta)return;if(v.st==='feita')atend++;const ids=v.svcs&&v.svcs.length?v.svcs:['_outros'];
+   const avulso=v.mode==='avulso'||pi.over.has(v.id);const total=v.mode==='avulso'?num(v.price):lpOf(v);const lp=ids.map(i=>svc(i)?num(svc(i).price):0);const sum=lp.reduce((a,b)=>a+b,0);
    ids.forEach((i,j)=>{const r=row(i);if(avulso){r.qa++;r.va+=sum?total*lp[j]/sum:total/ids.length}else if(v.mode==='pacote')r.qp++;else r.qm++})})});
  const pk={};S.clients.forEach(h=>(h.pkgs||[]).filter(p=>ymOf(p.date)===ym).forEach(p=>{pk[p.name]=pk[p.name]||{q:0,v:0};pk[p.name].q++;pk[p.name].v+=num(p.price)}));
- const me=S.clients.filter(h=>h.cob==='mensal');const meV=me.reduce((s,h)=>s+num(h.mensal),0);
+ const me=S.clients.filter(h=>cobAt(h,ym).cob==='mensal');const meV=me.reduce((s,h)=>s+num(cobAt(h,ym).mensal),0);
  const meth={};S.payments.filter(p=>p.month===ym).forEach(p=>meth[p.method]=(meth[p.method]||0)+num(p.value));
  const list=Object.values(rows).sort((a,b)=>b.va-a.va||(b.qa+b.qp+b.qm)-(a.qa+a.qp+a.qm));
  const va=list.reduce((s,r)=>s+r.va,0),pv=Object.values(pk).reduce((s,r)=>s+r.v,0);
  return {list,pk,meN:me.length,meV,meth,va,pv,total:va+pv+meV,atend,canc}}
 function schedText(h){const s=schedFor(h,today())||(h.sched||[]).slice(-1)[0];if(!s||!s.days)return '';const ks=Object.keys(s.days).filter(k=>s.days[k]).map(Number).sort((a,b)=>((a+6)%7)-((b+6)%7));if(!ks.length)return '';
  return ks.map(k=>DOW[k]+' '+s.days[k]).join(' · ')+(s.freq==='quinzenal'?' · a cada 15 dias':s.freq==='mensal'?' · 1x por mês ('+(s.wk||1)+'ª semana)':' · toda semana')}
-const cobText=h=>h.cob==='mensal'?'Mensal fixo: '+money(h.mensal):h.cob==='pacote'?'Usa pacote de sessões':'Paga por atendimento';
+const cobText=(h,ym)=>{const c=cobAt(h,ym||ymOf(today()));return c.cob==='mensal'?'Mensal fixo: '+money(c.mensal):c.cob==='pacote'?'Usa pacote de sessões':'Paga por atendimento'};
 function nextOf(h){const t=today();return visitsOfClient(h,t,addDays(t,60)).filter(v=>OCC(v)&&v.st!=='feita'&&!(v.date===t&&tmin(v.time)+svcDur(v.svcs)<nowMin()))}
 
 /* ---------- cartões de horário ---------- */
@@ -487,11 +491,13 @@ const views={
 home(){const t=today();const vs=visitsOn(t);const tm=visitsOn(addDays(t,1)).filter(v=>!v.st);
  const hr=new Date().getHours();const hi=hr<12?'Bom dia':hr<18?'Boa tarde':'Boa noite';
  const pend=[];S.clients.forEach(h=>visitsOfClient(h,addDays(t,-45),addDays(t,30)).filter(pending).forEach(v=>pend.push(v)));
+ const late=[];S.clients.forEach(h=>visitsOfClient(h,addDays(t,-30),t).filter(v=>!v.st&&(v.date<t||tmin(v.time)+svcDur(v.svcs)<=nowMin())).forEach(v=>late.push(v)));late.sort(byTime);
  const low=S.clients.map(h=>({h,pi:(h.pkgs||[]).length?pkgInfo(h):null})).filter(x=>x.pi&&x.pi.left<=1);
  const bday=S.clients.filter(h=>{const m=String(h.nasc||'').match(/(\d{1,2})\D+(\d{1,2})/);if(!m)return false;for(let i=0;i<7;i++){const d=parse(addDays(t,i));if(d.getDate()===+m[1]&&d.getMonth()+1===+m[2])return true}return false});
  return `<p class="welcome">${hi}${S.pro.name?', '+esc(first(S.pro.name)):''}! Vamos deixar todas lindas! 💅</p>
  ${S.cover?`<img class="cover" src="${S.cover}" alt="Foto de capa">`:`<img class="cover" src="${PHOTO_COVER}" alt="Foto da profissional" style="object-position:50% 45%;max-height:none;aspect-ratio:16/9">`}
  <div class="shortcuts"><button data-a="novo"><span class="scIcon">＋</span>Novo<br>horário</button><button data-a="go" data-p="agenda"><span class="scIcon">📅</span>Agenda</button><button data-a="go" data-p="link"><span class="scIcon">📝</span>Ficha da<br>cliente</button><button data-a="go" data-p="fin"><span class="scIcon">💰</span>Receber</button></div>
+ ${late.length?`<div class="card" style="border:2px solid var(--bad)"><h3>⚠️ Confirme os atendimentos (${late.length})</h3><p class="small muted">Estes horários já passaram e ainda não foram marcados. Toque em ✓ se atendeu, para o valor entrar certo no financeiro.</p>${late.slice(0,15).map(v=>`<div class="money"><span><b>${esc(first(cli(v.cli).cliente))}</b> · ${esc(fmtShort(v.date))} às ${esc(v.time)}<br><span class="small muted">${esc(svcNames(v.svcs))}</span></span><span style="flex:0 0 auto;display:grid;gap:4px"><button class="mini" data-a="feita" data-v="${esc(v.id)}">✓ Atendida</button><button class="white mini" data-a="desmarcou" data-v="${esc(v.id)}">✗ Não foi</button></span></div>`).join('')}${late.length>15?`<p class="small muted">E mais ${late.length-15}. Veja na Agenda.</p>`:''}</div>`:''}
  ${pend.length?`<div class="card" style="border:2px solid var(--warn)"><h3>📌 Para remarcar (${pend.length})</h3><p class="small muted">Clientes que desmarcaram ou não vieram e ainda não têm novo horário.</p>${pend.sort(byTime).map(v=>`<div class="money"><span><b>${esc(cli(v.cli).cliente)}</b><br><span class="small muted">${esc(fmtShort(v.date))} · ${esc(svcNames(v.svcs))}</span></span><span style="flex:0 0 auto;display:grid;gap:4px"><button class="mini" data-a="remarcar" data-v="${v.id}">📅 Remarcar</button>${PLUS()&&cli(v.cli).phone?`<a class="btn light" style="padding:7px 10px;font-size:13px" href="${esc(waLink(cli(v.cli).phone,fillTpl('horarios',cli(v.cli),{horarios:nextFreeText(svcDur(v.svcs))})))}" target="_blank" rel="noopener">💬 Oferecer horários</a>`:''}</span></div>`).join('')}</div>`:''}
  <div class="card"><h3>Hoje · ${esc(fmtD(t))}</h3>${vs.length?vs.map(v=>visitCard(v)).join(''):'<p class="muted small">Nenhum horário hoje.</p>'}</div>
  <div class="card"><h3>Amanhã</h3>${tm.length?tm.map(v=>{const h=cli(v.cli);return `<div class="money"><span><b>${esc(v.time)}</b> · ${esc(h.cliente)}<br><span class="small muted">${esc(svcNames(v.svcs))}</span></span>${PLUS()&&h.phone?`<a class="btn light" style="padding:7px 10px;font-size:13px;flex:0 0 auto" href="${esc(waLink(h.phone,fillTpl('confirma',h,{quando:fmtD(v.date)+' às '+v.time,servico:svcNames(v.svcs)})))}" target="_blank" rel="noopener">📲 Confirmar</a>`:''}</div>`}).join(''):'<p class="muted small">Nada marcado.</p>'}<button class="light full" data-a="go" data-p="agenda" data-x="${addDays(t,1)}">Ver agenda</button></div>
@@ -676,7 +682,7 @@ function render(){document.documentElement.style.setProperty('--c',S.color||'#c4
 function slotsHtml(date,dur,excl,sel){const fr=freeSlots(date,dur,excl);if(!(S.hours.days||[]).includes(parse(date).getDay()))return '<p class="small muted" style="margin:4px 0">Você não atende neste dia — escolha o horário abaixo mesmo assim, se quiser.</p>';
  return fr.length?`<div class="slots">${fr.map(t=>`<button type="button" class="slot ${t===sel?'on':''}" data-a="pickTime" data-x="${t}">${t}</button>`).join('')}</div>`:'<p class="small muted" style="margin:4px 0">Sem horário livre neste dia.</p>'}
 function updSlots(f){const box=f.querySelector('.slotBox');if(!box)return;const dur=f.dataset.dur?parseInt(f.dataset.dur):svcDur([...f.querySelectorAll('input[name=svc]:checked')].map(x=>x.value));const d=f.elements.date.value;if(!d){box.innerHTML='';return}box.innerHTML=slotsHtml(d,dur,f.dataset.v||'',f.elements.time.value)}
-function modeDefault(h){if(!h)return 'avulso';const pi=(h.pkgs||[]).length?pkgInfo(h):null;if(pi&&pi.left>0)return 'pacote';if(h.cob==='mensal')return 'mensal';if(h.cob==='pacote')return 'pacote';return 'avulso'}
+function modeDefault(h){if(!h)return 'avulso';const pi=(h.pkgs||[]).length?pkgInfo(h):null;if(pi&&pi.left>0)return 'pacote';const cn=cobAt(h,ymOf(today())).cob;if(cn==='mensal')return 'mensal';if(cn==='pacote')return 'pacote';return 'avulso'}
 function novoModal(d){const h=d.h?cli(d.h):null;const date=d.d||today();const md=modeDefault(h);
  openModal(`<h3>Novo horário</h3><form data-f="novo" data-slots="1">
  <label>Cliente<select name="cli">${S.clients.length&&!h?'<option value="">Escolha a cliente…</option>':''}${S.clients.slice().sort((a,b)=>a.cliente.localeCompare(b.cliente)).map(x=>`<option value="${x.id}" ${h&&h.id===x.id?'selected':''}>${esc(x.cliente)}</option>`).join('')}<option value="__new">＋ Cliente nova</option></select></label>
@@ -707,21 +713,21 @@ const A={
  fm:d=>{finMonth=d.x;render()},
  novo:d=>novoModal(d),
  pickTime:(d,el)=>{const f=el.closest('form');f.elements.time.value=d.x;f.querySelectorAll('.slot').forEach(b=>b.classList.toggle('on',b===el))},
- feita:d=>{patch(d.v,{st:'feita'});const v=getV(d.v);feedback('Atendimento feito ✓');render();if(PLUS()&&v){const h=cli(v.cli);const pi=v.mode==='pacote'?pkgInfo(h):null;if(pi&&pi.list.length&&pi.left<=1&&h.phone){openModal(`<h3>Pacote de ${esc(first(h.cliente))} ${pi.left?'está no fim':'acabou'}</h3><p>${pi.left?'Resta 1 sessão.':'Ela usou todas as sessões.'} Quer oferecer a renovação?</p><a class="btn full" href="${esc(waLink(h.phone,fillTpl('renovar',h,{restam:pi.left})))}" target="_blank" rel="noopener">💬 Oferecer renovação</a><button class="white full" data-a="close">Agora não</button>`)}}},
+ feita:d=>{const v0=getV(d.v);patch(d.v,{st:'feita',price:num(v0.price),lp:lpOf(v0),mode:v0.mode,svcs:v0.svcs});const v=getV(d.v);feedback('Atendimento feito ✓');render();if(PLUS()&&v){const h=cli(v.cli);const pi=v.mode==='pacote'?pkgInfo(h):null;if(pi&&pi.list.length&&pi.left<=1&&h.phone){openModal(`<h3>Pacote de ${esc(first(h.cliente))} ${pi.left?'está no fim':'acabou'}</h3><p>${pi.left?'Resta 1 sessão.':'Ela usou todas as sessões.'} Quer oferecer a renovação?</p><a class="btn full" href="${esc(waLink(h.phone,fillTpl('renovar',h,{restam:pi.left})))}" target="_blank" rel="noopener">💬 Oferecer renovação</a><button class="white full" data-a="close">Agora não</button>`)}}},
  desmarcou:d=>{const v=getV(d.v);const h=cli(v.cli);openModal(`<h3>${esc(first(h.cliente))} desmarcou</h3><p class="small muted">${esc(fmtD(v.date))} às ${esc(v.time)} · ${esc(svcNames(v.svcs))}</p>
   <button class="full" data-a="remarcar" data-v="${esc(d.v)}">📅 Remarcar agora (escolher dia e hora)</button>
   <button class="light full" data-a="cancelSet" data-v="${esc(d.v)}" data-x="cancel-repor">⏳ Remarcar depois</button>
   <button class="white full" data-a="cancelSet" data-v="${esc(d.v)}" data-x="cancel">✗ Não vai remarcar</button><button class="white full" data-a="close">Voltar</button>`)},
  faltou:d=>{const v=getV(d.v);const h=cli(v.cli);openModal(`<h3>${esc(first(h.cliente))} não veio</h3><p class="small muted">${esc(fmtD(v.date))} às ${esc(v.time)}</p>${v.mode==='pacote'?`<label class="checkItem" style="border:0"><input type="checkbox" id="descPk"><span>Descontar esta sessão do pacote (falta sem aviso)</span></label>`:''}
   <button class="full" data-a="faltaSet" data-v="${esc(d.v)}">Marcar falta</button><button class="white full" data-a="close">Voltar</button>`)},
- faltaSet:d=>{const c=$('#descPk');patch(d.v,{st:'falta',desc:c&&c.checked?1:null});const v=getV(d.v);const h=cli(v.cli);closeModal();render();
+ faltaSet:d=>{const c=$('#descPk');const v0=getV(d.v);patch(d.v,{st:'falta',desc:c&&c.checked?1:null,lp:lpOf(v0),mode:v0.mode,svcs:v0.svcs});const v=getV(d.v);const h=cli(v.cli);closeModal();render();
   openModal(`<h3>Falta marcada</h3><p>Quer remarcar ${esc(first(h.cliente))}?</p><button class="full" data-a="remarcar" data-v="${esc(d.v)}">📅 Remarcar agora</button>${PLUS()&&h.phone?`<a class="btn light full" href="${esc(waLink(h.phone,fillTpl('horarios',h,{horarios:nextFreeText(svcDur(v.svcs))})))}" target="_blank" rel="noopener">💬 Mandar horários livres para ela</a>`:''}<button class="white full" data-a="close">Depois</button>`)},
  cancelSet:d=>{patch(d.v,{st:d.x});const v=getV(d.v);const h=cli(v.cli);closeModal();render();
   if(d.x==='cancel-repor'){openModal(`<h3>Fica em "Para remarcar"</h3><p class="small">Ela aparece no Início até ganhar um novo horário.</p>${PLUS()&&h.phone?`<p class="small"><b>Quer mandar os próximos horários livres para ela escolher?</b></p><pre class="box">${esc(fillTpl('horarios',h,{horarios:nextFreeText(svcDur(v.svcs))}))}</pre><a class="btn full" href="${esc(waLink(h.phone,fillTpl('horarios',h,{horarios:nextFreeText(svcDur(v.svcs))})))}" target="_blank" rel="noopener">💬 Mandar no WhatsApp</a>`:''}<button class="white full" data-a="close">Fechar</button>`)}else feedback('Desmarcado.')},
  remarcar:d=>remarcarModal(d.v),
  tirar:d=>{const v=getV(d.v);openModal(`<h3>${v&&v.kind==='fixa'?'Tirar só este dia?':'Apagar este horário?'}</h3><p>O horário some da agenda e não conta no mês.</p><button class="danger full" data-a="tirarOk" data-v="${esc(d.v)}">Sim</button><button class="white full" data-a="close">Voltar</button>`)},
  tirarOk:d=>{const e=S.extras.find(x=>x.id===d.v);if(e){S.extras=S.extras.filter(x=>x.id!==d.v);if(e.from){const o=getV(e.from);if(o){if(o.st==='remarcada')patch(e.from,{st:null,to:null});else patch(e.from,{rep:null,to:null})}}save()}else patch(d.v,{st:'tirado'});closeModal();feedback('Horário retirado.');render()},
- desfazer:d=>{const v=getV(d.v);if(v){S.extras=S.extras.filter(x=>!(x.from===d.v));patch(d.v,{st:null,to:null,rep:null,desc:null})}feedback('Voltou ao normal.');render()},
+ desfazer:d=>{const v=getV(d.v);if(v){S.extras=S.extras.filter(x=>!(x.from===d.v));patch(d.v,{st:null,to:null,rep:null,desc:null});if(!S.extras.some(x=>x.id===d.v))patch(d.v,{price:null,lp:null,mode:null,svcs:null})}feedback('Voltou ao normal.');render()},
  vender:d=>{const h=cli(d.h);openModal(`<h3>Vender pacote · ${esc(first(h.cliente))}</h3><form data-f="vender" data-h="${d.h}">
   <label>Pacote<select name="pack"><option value="">Outro (escrever)</option>${S.packs.map(p=>`<option value="${p.id}">${esc(p.name)} · ${p.sessions} sessões · ${money(p.price)}</option>`).join('')}</select></label>
   <label>Nome<input name="name" value="${esc((S.packs[0]||{}).name||'')}" required></label>
@@ -784,19 +790,22 @@ function parseAnswers(txt){if(!/FICHA DA CLIENTE/.test(txt))return null;const a=
  txt.split(/\n/).forEach(l=>{l=l.replace(/^[\s•*\-]+/,'').trim();for(const id of ids){const lb=LABELS[id]+':';if(l.startsWith(lb)){const v=l.slice(lb.length).trim();if(!v)break;a[id]=qs[id]&&qs[id].type==='checks'?v.split(/,\s*/):v;break}}});
  return Object.keys(a).length>1?a:null}
 function parseVoz(txt){const m=txt.match(/PREFER[ÊE]NCIAS DA CLIENTE\s*[—-]\s*(.+)/i);if(!m)return null;const f=(txt.match(/WhatsApp:\s*(.+)/)||[])[1]||'';const i=txt.search(/Em palavras da cliente:/i);const texto=i>-1?txt.slice(i).replace(/Em palavras da cliente:\s*/i,'').trim():txt.trim();return {nome:m[1].trim(),fone:f.trim(),texto}}
-function newCli(o){const h=Object.assign({id:uid(),cliente:'Nova cliente',phone:'',nasc:'',cob:'avulso',mensal:0,fixSvcs:[],fixPrice:0,sched:[],pkgs:[],prefs:{},notes:''},o);S.clients.push(h);return h}
+function newCli(o){const h=Object.assign({id:uid(),since:ymOf(today()),cliente:'Nova cliente',phone:'',nasc:'',cob:'avulso',mensal:0,fixSvcs:[],fixPrice:0,sched:[],pkgs:[],prefs:{},notes:''},o);S.clients.push(h);return h}
 document.addEventListener('submit',e=>{const f=e.target;if(!f.dataset.f)return;e.preventDefault();const fd=new FormData(f);const F=Object.fromEntries(fd.entries());const k=f.dataset.f;
  if(k==='cli'){if(!String(F.cliente||'').trim()){feedback('Escreva o nome da cliente.',true);return}
   let h=f.dataset.h?cli(f.dataset.h):null;const days={};let miss=false;[0,1,2,3,4,5,6].forEach(d=>{if(F['d'+d]){if(F['t'+d])days[d]=F['t'+d];else miss=true}});
   if(miss){feedback('Coloque o horário do dia marcado.',true);return}
   const fs=fd.getAll('fsvc');if(Object.keys(days).length&&!fs.length){feedback('Escolha o serviço do horário fixo.',true);return}
   const from=F.from||today();const ns={from,freq:F.freq||'semanal',days,wk:parseInt(F.wk)||1};
+  if((F.cob||'avulso')==='mensal'&&!num(F.mensal)){feedback('Coloque o valor mensal.',true);return}
   if(!h)h=newCli({});
-  Object.assign(h,{cliente:F.cliente.trim(),phone:F.phone||'',nasc:F.nasc||'',cob:F.cob||'avulso',mensal:num(F.mensal),fixSvcs:fs});
+  Object.assign(h,{cliente:F.cliente.trim(),phone:F.phone||'',nasc:F.nasc||'',fixSvcs:fs});setCob(h,F.cob||'avulso',F.cob==='mensal'?num(F.mensal):0);
   const cur=schedFor(h,from);if(!cur||JSON.stringify(cur.days)!==JSON.stringify(days)||cur.freq!==ns.freq||(ns.freq==='mensal'&&cur.wk!==ns.wk)){h.sched=(h.sched||[]).filter(x=>x.from<from);if(Object.keys(days).length||h.sched.length)h.sched.push(ns)}
   save();feedback('Cliente salva ✓');go('ficha',h.id)}
  else if(k==='novo'){const ids=fd.getAll('svc');if(!ids.length){feedback('Escolha pelo menos um serviço.',true);return}if(!F.time){feedback('Escolha o horário.',true);return}
-  let h;if(!F.cli){feedback('Escolha a cliente.',true);return}if(F.cli==='__new'){if(!String(F.nome||'').trim()){feedback('Escreva o nome da cliente nova.',true);f.elements.nome.focus();return}if(!PLUS()&&S.clients.length>=LIMIT_BASICO){closeModal();A.lockinfo();return}h=newCli({cliente:F.nome.trim(),phone:F.fone||''})}else h=cli(F.cli);
+  if(!F.cli){feedback('Escolha a cliente.',true);return}
+  if(F.mode==='mensal'&&(F.cli==='__new'||cobAt(cli(F.cli),ymOf(F.date)).cob!=='mensal')){feedback('Essa cliente não está no mensal fixo. Escolha "Paga na hora" ou mude em Editar cliente.',true);return}
+  let h;if(F.cli==='__new'){if(!String(F.nome||'').trim()){feedback('Escreva o nome da cliente nova.',true);f.elements.nome.focus();return}if(!PLUS()&&S.clients.length>=LIMIT_BASICO){closeModal();A.lockinfo();return}h=newCli({cliente:F.nome.trim(),phone:F.fone||''})}else h=cli(F.cli);
   const mode=F.mode||'avulso';const price=mode==='avulso'?num(F.price):0;const step=parseInt(F.rep)||0;const n=step?parseInt(F.vezes)||1:1;let warn='';
   for(let i=0;i<n;i++){const date=addDays(F.date,step*i);const c=clash(date,F.time,svcDur(ids));if(c&&!warn)warn=' Atenção: bate com '+first(cli(c.cli).cliente)+' em '+fmtShort(date)+' às '+c.time+'.';S.extras.push({id:uid(),cli:h.id,date,time:F.time,svcs:ids,price,mode,kind:'avulso',st:''})}
   save();closeModal();agDate=F.date;feedback((n>1?n+' horários marcados ✓':'Horário marcado ✓')+warn,!!warn);render();
@@ -810,7 +819,7 @@ document.addEventListener('submit',e=>{const f=e.target;if(!f.dataset.f)return;e
   save();closeModal();render();const h=cli(v.cli);feedback('Remarcado para '+fmtD(F.date)+' às '+F.time+(c?' · atenção: bate com '+first(cli(c.cli).cliente):''),!!c);
   setTimeout(()=>openModal(`<h3>Remarcado ✓</h3><p><b>${esc(first(h.cliente))}</b><br>${esc(fmtD(F.date))} às ${esc(F.time)}<br><span class="small muted">${esc(svcNames(v.svcs))}</span></p>${h.phone?`<a class="btn full" href="${esc(waLink(h.phone,fillTpl('remarcado',h,{quando:fmtD(F.date)+' às '+F.time,servico:svcNames(v.svcs)})))}" target="_blank" rel="noopener">📲 Avisar a cliente no WhatsApp</a>`:''}<button class="white full" data-a="close">Fechar</button>`),50)}
  else if(k==='vender'){const h=cli(f.dataset.h);const p={id:uid(),name:(F.name||'Pacote').trim(),sessions:parseInt(F.sessions)||1,price:num(F.price),date:F.date||today()};h.pkgs=h.pkgs||[];h.pkgs.push(p);
-  if(F.pago)S.payments.push({id:uid(),cli:h.id,month:ymOf(p.date),value:p.price,date:p.date,method:F.method,note:p.name});if(F.cob)h.cob='pacote';save();closeModal();feedback('Pacote salvo ✓');render()}
+  if(F.pago)S.payments.push({id:uid(),cli:h.id,month:ymOf(p.date),value:p.price,date:p.date,method:F.method,note:p.name});if(F.cob)setCob(h,'pacote',0);save();closeModal();feedback('Pacote salvo ✓');render()}
  else if(k==='pagar'){S.payments.push({id:uid(),cli:f.dataset.h,month:f.dataset.m,value:num(F.value),date:F.date||today(),method:F.method});save();closeModal();feedback('Pagamento salvo ✓');render()}
  else if(k==='colar'){const txt=F.txt||'';const ans=parseAnswers(txt);const vz=ans?null:parseVoz(txt);let h=f.dataset.h?cli(f.dataset.h):null;
   if(!h){if(!PLUS()&&S.clients.length>=LIMIT_BASICO){closeModal();A.lockinfo();return}const nm=(ans&&aval(ans,'cliente'))||(vz&&vz.nome)||'Nova cliente';h=newCli({cliente:nm,phone:(ans&&aval(ans,'fone'))||(vz&&vz.fone)||''})}

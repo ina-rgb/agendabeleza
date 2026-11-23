@@ -178,7 +178,7 @@ footer{max-width:580px;margin:auto;padding:0 16px 110px;text-align:center;font-s
 .slot{background:#fff;color:var(--dark);border:1.5px solid var(--line);padding:9px 11px;font-size:14px;border-radius:11px}
 .slot.on{background:var(--c);color:#fff;border-color:var(--c)}
 .vTime{font-weight:800;color:var(--dark);font-size:15px}
-table.ft{width:100%;border-collapse:collapse;font-size:13.5px;margin:6px 0}
+table.ft{width:100%;border-collapse:collapse;font-size:13px;margin:6px 0}
 table.ft th{text-align:left;font-size:11.5px;color:var(--muted);font-weight:600;padding:6px 4px;border-bottom:1px solid var(--line)}
 table.ft td{padding:8px 4px;border-bottom:1px solid var(--line);vertical-align:top}
 table.ft td.n,table.ft th.n{text-align:right;white-space:nowrap}
@@ -569,6 +569,8 @@ fin(){const ym=finMonth;let dev=0,pag=0,prev=0;const rows=S.clients.map(h=>{cons
  <div class="catT">Pacotes vendidos</div>${Object.keys(R.pk).length?Object.entries(R.pk).map(([n,x])=>`<div class="money"><span>${esc(n)} <span class="muted small">× ${x.q}</span></span><b>${money(x.v)}</b></div>`).join(''):'<p class="small muted" style="margin:4px 0">Nenhum pacote vendido.</p>'}
  <div class="catT">Mensalidades</div><div class="money"><span>${R.meN} cliente(s) no mensal fixo</span><b>${money(R.meV)}</b></div>
  <div class="money" style="border-top:2px solid var(--line);margin-top:6px"><span><b>Total do mês</b></span><b>${money(R.total)}</b></div></div>`:lockBox('Relatório por serviço','Quanto entrou em cada serviço, pacotes vendidos e mensalidades.')}
+ ${(()=>{const L=rows.filter(({r})=>r.devido||r.pago||r.prev).sort((x,y)=>x.h.cliente.localeCompare(y.h.cliente));if(!L.length)return '';const T=L.reduce((t,{r})=>{t.m+=r.prev;t.a+=r.devido;t.p+=r.pago;t.f+=Math.max(0,r.devido-r.pago);return t},{m:0,a:0,p:0,f:0});const c=v=>v?money(v).replace('R$\u00a0','').replace('R$ ',''):'–';
+ return `<div class="card"><h3>📋 Lista do mês</h3><p class="small muted" style="margin:0">Valores em R$. Toque no nome para abrir a cliente.</p><table class="ft"><thead><tr><th>Cliente</th><th class="n">Marcado</th><th class="n">Valor</th><th class="n">Recebido</th><th class="n">Falta</th></tr></thead><tbody>${L.map(({h,r})=>{const f=Math.max(0,r.devido-r.pago);return `<tr><td><a href="#" data-a="ficha" data-h="${h.id}" style="color:var(--dark);font-weight:600">${esc(first(h.cliente))}</a></td><td class="n muted">${c(r.prev)}</td><td class="n">${c(r.devido)}</td><td class="n">${c(r.pago)}</td><td class="n" style="${f?'color:var(--bad);font-weight:700':''}">${c(f)}</td></tr>`}).join('')}<tr class="tot"><td>Total</td><td class="n">${c(T.m)}</td><td class="n">${c(T.a)}</td><td class="n">${c(T.p)}</td><td class="n" style="color:var(--bad)">${c(T.f)}</td></tr></tbody></table></div>`})()}
  <div class="filterBar" role="group" aria-label="Mostrar">${[['todas','Todas'],['abertos','A receber'],['recebidos','Recebidos']].map(([k,l])=>`<button class="${finFilter===k?'on':''}" data-a="ff" data-x="${k}" aria-pressed="${finFilter===k}">${l}</button>`).join('')}</div>
  ${(()=>{const fr=rows.filter(({r})=>(finFilter==='abertos'?r.devido>r.pago:finFilter==='recebidos'?r.pago>0:(r.devido||r.pago||r.prev)));return fr.length?fr.map(({h,r})=>`<div class="card"><div class="row"><b style="flex:1">${esc(h.cliente)}</b><span class="tag ${r.devido&&r.pago>=r.devido?'ok':r.pago?'warn':'grey'}">${r.devido&&r.pago>=r.devido?'Pago':r.pago?'Parcial':r.devido?'Em aberto':'Só marcado'}</span></div>
   <p class="small muted" style="margin:4px 0">${esc(cobText(h))} · ${r.feitas} atendimento(s)</p>
